@@ -12,3 +12,8 @@ A python script emulates a virtual touchpad device through raw multi-touch input
 
 - Moonlight game stream
 > I tested with Sunshine server.
+
+## Thanks to
+
+- Gemini: created this script, and make it works.
+- ChatGPT: fixed the bugs.
