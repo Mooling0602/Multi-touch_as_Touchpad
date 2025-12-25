@@ -19,3 +19,5 @@ A python script emulates a virtual touchpad device through raw multi-touch input
 
 - Gemini: created this script, and make it works.
 - ChatGPT: fixed the bugs.
+- DeepSeek: added support for drag movement.
+- Zed: integration with DeepSeek.
