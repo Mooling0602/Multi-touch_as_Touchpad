@@ -10,10 +10,71 @@ RIGHT_CLICK_TAP = 0.2  # Maximum time for two-finger right-click tap (seconds)
 MOVE_THRESHOLD = 1  # Minimum movement to trigger cursor move (pixels)
 SCROLL_THRESHOLD = 8  # Minimum vertical movement to trigger scroll (pixels)
 MOVE_SCALE = 0.35  # Cursor movement scaling factor (lower = slower)
+MOVE_X_MULTIPLIER = (
+    1.0  # X direction: 1.0=normal, -1.0=invert, 0.5=half speed, 2.0=double speed
+)
+MOVE_Y_MULTIPLIER = (
+    1.0  # Y direction: 1.0=normal, -1.0=invert, 0.5=half speed, 2.0=double speed
+)
 DOUBLE_CLICK_TIMEOUT = (
     0.4  # Maximum time between clicks for double-click drag (seconds)
 )
 
+# ===== Configuration Examples =====
+# Adjust these values for your specific device:
+#
+# 1. Direction Correction (cursor moves opposite to finger):
+#    a. Both axes inverted (common with touchscreen/display mismatch):
+#       MOVE_X_MULTIPLIER = -1.0
+#       MOVE_Y_MULTIPLIER = -1.0
+#    b. Only X axis inverted:
+#       MOVE_X_MULTIPLIER = -1.0
+#       MOVE_Y_MULTIPLIER = 1.0
+#    c. Only Y axis inverted:
+#       MOVE_X_MULTIPLIER = 1.0
+#       MOVE_Y_MULTIPLIER = -1.0
+#
+# 2. Speed Adjustment:
+#    a. General slower movement:
+#       MOVE_SCALE = 0.2
+#       MOVE_X_MULTIPLIER = 1.0
+#       MOVE_Y_MULTIPLIER = 1.0
+#    b. Different speeds for X/Y axes:
+#       MOVE_SCALE = 0.35
+#       MOVE_X_MULTIPLIER = 0.8   # 80% horizontal speed
+#       MOVE_Y_MULTIPLIER = 1.2   # 120% vertical speed
+#
+# 3. Double-click Sensitivity:
+#    a. Faster double-click (for quick dragging):
+#       DOUBLE_CLICK_TIMEOUT = 0.3
+#    b. Slower double-click (avoid accidental dragging):
+#       DOUBLE_CLICK_TIMEOUT = 0.5
+#
+# 4. Different Touch Device:
+#    device_path = "/dev/input/eventX"  # Find correct event number:
+#    # Run: sudo libinput list-devices | grep -A5 -B5 "Touchscreen\|Touchpad"
+#
+# 5. Scroll Direction:
+#    a. Natural scrolling (like Mac/phones):
+#       INVERT_SCROLL = True
+#    b. Traditional scrolling (like Windows):
+#       INVERT_SCROLL = False
+#
+# 6. Click Timing (adjust if clicks don't register):
+#    a. Faster clicks:
+#       CLICK_TIME = 0.2
+#       RIGHT_CLICK_TAP = 0.15
+#    b. Slower clicks (for deliberate actions):
+#       CLICK_TIME = 0.3
+#       RIGHT_CLICK_TAP = 0.25
+#
+# Troubleshooting Guide:
+# 1. If cursor moves opposite direction: Try different MOVE_X/Y_MULTIPLIER combinations
+# 2. If cursor moves too fast/slow: Adjust MOVE_SCALE and multipliers
+# 3. If double-click doesn't work: Decrease DOUBLE_CLICK_TIMEOUT
+# 4. If accidental dragging: Increase DOUBLE_CLICK_TIMEOUT
+# 5. If clicks don't register: Increase CLICK_TIME and RIGHT_CLICK_TAP
+#
 # ===== ANSI color =====
 C_GRN = "\033[32m"
 C_RED = "\033[31m"
@@ -257,10 +318,12 @@ def main():
                             out.extend(
                                 [
                                     libevdev.InputEvent(
-                                        libevdev.EV_REL.REL_X, int(avg_dx * MOVE_SCALE)
+                                        libevdev.EV_REL.REL_X,
+                                        int(avg_dx * MOVE_SCALE * MOVE_X_MULTIPLIER),
                                     ),
                                     libevdev.InputEvent(
-                                        libevdev.EV_REL.REL_Y, int(avg_dy * MOVE_SCALE)
+                                        libevdev.EV_REL.REL_Y,
+                                        int(avg_dy * MOVE_SCALE * MOVE_Y_MULTIPLIER),
                                     ),
                                 ]
                             )
