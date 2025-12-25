@@ -306,8 +306,16 @@ def main():
                         out = []
 
                         if len(active) >= 2:
-                            if abs(avg_dy) > SCROLL_THRESHOLD:
-                                wheel_val = 1 if avg_dy < 0 else -1
+                            # For scrolling, we need to consider axis swapping
+                            if SWAP_AXES:
+                                # When axes are swapped, horizontal finger movement (dx) becomes vertical scroll
+                                scroll_value = avg_dx
+                            else:
+                                # Normal case: vertical finger movement (dy) controls scrolling
+                                scroll_value = avg_dy
+
+                            if abs(scroll_value) > SCROLL_THRESHOLD:
+                                wheel_val = 1 if scroll_value < 0 else -1
                                 if INVERT_SCROLL:
                                     wheel_val *= -1
                                 out.append(
