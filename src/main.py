@@ -19,6 +19,7 @@ MOVE_Y_MULTIPLIER = (
 DOUBLE_CLICK_TIMEOUT = (
     0.4  # Maximum time between clicks for double-click drag (seconds)
 )
+SWAP_AXES = False  # Swap X and Y axes (True = swap, False = normal)
 
 # ===== Configuration Examples =====
 # Adjust these values for your specific device:
@@ -67,6 +68,12 @@ DOUBLE_CLICK_TIMEOUT = (
 #    b. Slower clicks (for deliberate actions):
 #       CLICK_TIME = 0.3
 #       RIGHT_CLICK_TAP = 0.25
+#
+# 7. Axis Correction (swapped or rotated touchscreen):
+#    a. X and Y axes swapped (finger right → cursor down, finger up → cursor right):
+#       SWAP_AXES = True
+#    b. Normal axes (finger right → cursor right, finger up → cursor up):
+#       SWAP_AXES = False
 #
 # Troubleshooting Guide:
 # 1. If cursor moves opposite direction: Try different MOVE_X/Y_MULTIPLIER combinations
@@ -315,15 +322,23 @@ def main():
                                 # No delayed drag (traditional touchpad behavior)
                                 pass
                             # Always send movement events
+                            if SWAP_AXES:
+                                # Swap X and Y axes: X movement becomes Y, Y movement becomes X
+                                move_x = int(avg_dy * MOVE_SCALE * MOVE_X_MULTIPLIER)
+                                move_y = int(avg_dx * MOVE_SCALE * MOVE_Y_MULTIPLIER)
+                            else:
+                                move_x = int(avg_dx * MOVE_SCALE * MOVE_X_MULTIPLIER)
+                                move_y = int(avg_dy * MOVE_SCALE * MOVE_Y_MULTIPLIER)
+
                             out.extend(
                                 [
                                     libevdev.InputEvent(
                                         libevdev.EV_REL.REL_X,
-                                        int(avg_dx * MOVE_SCALE * MOVE_X_MULTIPLIER),
+                                        move_x,
                                     ),
                                     libevdev.InputEvent(
                                         libevdev.EV_REL.REL_Y,
-                                        int(avg_dy * MOVE_SCALE * MOVE_Y_MULTIPLIER),
+                                        move_y,
                                     ),
                                 ]
                             )
