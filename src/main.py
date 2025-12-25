@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import math
 import time
 
 import libevdev
@@ -20,6 +21,12 @@ DOUBLE_CLICK_TIMEOUT = (
     0.4  # Maximum time between clicks for double-click drag (seconds)
 )
 SWAP_AXES = False  # Swap X and Y axes (True = swap, False = normal)
+ACCELERATION_ENABLED = True  # Enable cursor acceleration (movement scales with speed)
+ACCELERATION_FACTOR = 0.5  # Acceleration intensity (higher = faster acceleration)
+ACCELERATION_MAX_MULTIPLIER = 3.0  # Maximum acceleration multiplier
+ACCELERATION_MIN_TIME_DELTA = (
+    0.001  # Minimum time delta for speed calculation (seconds)
+)
 
 # ===== Configuration Examples =====
 # Adjust these values for your specific device:
@@ -74,6 +81,21 @@ SWAP_AXES = False  # Swap X and Y axes (True = swap, False = normal)
 #       SWAP_AXES = True
 #    b. Normal axes (finger right → cursor right, finger up → cursor up):
 #       SWAP_AXES = False
+#
+# 8. Cursor Acceleration:
+#    a. Enable acceleration (cursor moves faster with faster finger movement):
+#       ACCELERATION_ENABLED = True
+#       ACCELERATION_FACTOR = 0.5
+#       ACCELERATION_MAX_MULTIPLIER = 3.0
+#       ACCELERATION_MIN_TIME_DELTA = 0.001
+#    b. Disable acceleration (constant cursor speed):
+#       ACCELERATION_ENABLED = False
+#    c. Adjust acceleration intensity:
+#       ACCELERATION_FACTOR = 0.3  # Mild acceleration
+#       ACCELERATION_FACTOR = 1.0  # Strong acceleration
+#    d. Limit maximum acceleration:
+#       ACCELERATION_MAX_MULTIPLIER = 2.0  # Maximum 2x speed
+#       ACCELERATION_MAX_MULTIPLIER = 5.0  # Maximum 5x speed
 #
 # Troubleshooting Guide:
 # 1. If cursor moves opposite direction: Try different MOVE_X/Y_MULTIPLIER combinations
@@ -131,6 +153,8 @@ def main():
     dragging = False
     last_click_time = 0.0
     click_count = 0
+    last_process_time = time.time()
+    last_speed = 0.0
 
     try:
         for ev in dev.events():
@@ -297,6 +321,10 @@ def main():
                         count += 1
                     last_pos[tid] = (slots[tid]["x"], slots[tid]["y"])
 
+                # Calculate time delta before processing movement
+                current_time = time.time()
+                time_delta = current_time - last_process_time
+
                 if count:
                     avg_dx = dx / count
                     avg_dy = dy / count
@@ -332,11 +360,55 @@ def main():
                             # Always send movement events
                             if SWAP_AXES:
                                 # Swap X and Y axes: X movement becomes Y, Y movement becomes X
-                                move_x = int(avg_dy * MOVE_SCALE * MOVE_X_MULTIPLIER)
-                                move_y = int(avg_dx * MOVE_SCALE * MOVE_Y_MULTIPLIER)
+                                raw_move_x = avg_dy
+                                raw_move_y = avg_dx
                             else:
-                                move_x = int(avg_dx * MOVE_SCALE * MOVE_X_MULTIPLIER)
-                                move_y = int(avg_dy * MOVE_SCALE * MOVE_Y_MULTIPLIER)
+                                raw_move_x = avg_dx
+                                raw_move_y = avg_dy
+
+                            # Apply cursor acceleration if enabled
+                            if (
+                                ACCELERATION_ENABLED
+                                and time_delta > ACCELERATION_MIN_TIME_DELTA
+                            ):
+                                # Calculate speed based on movement distance
+                                movement_distance = math.sqrt(
+                                    raw_move_x**2 + raw_move_y**2
+                                )
+                                current_speed = movement_distance / time_delta
+
+                                # Smooth speed transition using exponential moving average
+                                speed_alpha = 0.3  # Smoothing factor
+                                smoothed_speed = (
+                                    last_speed * (1 - speed_alpha)
+                                    + current_speed * speed_alpha
+                                )
+                                last_speed = smoothed_speed
+
+                                # Apply acceleration curve: faster movement = larger multiplier
+                                # Base multiplier is 1.0, increased by speed * ACCELERATION_FACTOR
+                                acceleration_multiplier = (
+                                    1.0 + smoothed_speed * ACCELERATION_FACTOR
+                                )
+                                # Apply maximum acceleration limit
+                                acceleration_multiplier = min(
+                                    acceleration_multiplier, ACCELERATION_MAX_MULTIPLIER
+                                )
+                            else:
+                                acceleration_multiplier = 1.0
+
+                            move_x = int(
+                                raw_move_x
+                                * MOVE_SCALE
+                                * MOVE_X_MULTIPLIER
+                                * acceleration_multiplier
+                            )
+                            move_y = int(
+                                raw_move_y
+                                * MOVE_SCALE
+                                * MOVE_Y_MULTIPLIER
+                                * acceleration_multiplier
+                            )
 
                             out.extend(
                                 [
@@ -356,6 +428,9 @@ def main():
                                 out
                                 + [libevdev.InputEvent(libevdev.EV_SYN.SYN_REPORT, 0)]
                             )
+
+                    # Update last_process_time only when we have actual movement data
+                    last_process_time = current_time
 
     except KeyboardInterrupt:
         pass
