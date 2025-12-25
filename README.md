@@ -8,7 +8,7 @@ A python script emulates a virtual touchpad device through raw multi-touch input
 - Python package: `libevdev`
 > You should better use system package manager to install. For example, in Fedora, install `python3-libevdev` instead.
 
-**NOTE**: Windows is not supported.
+**NOTE**: Only Linux is supported. macOS, Windows, etc is not supported.
 
 ## Tested in
 
