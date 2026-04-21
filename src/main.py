@@ -20,9 +20,13 @@ MOVE_Y_MULTIPLIER = (
 DOUBLE_CLICK_TIMEOUT = (
     0.4  # Maximum time between clicks for double-click drag (seconds)
 )
+
+LONG_PRESS_DRAG = True  # Enable long-press to start drag (disables double-click drag)
+LONG_PRESS_TIME = 0.5  # Time to hold for long-press drag (seconds)
+LONG_PRESS_MOVE_THRESHOLD = 10  # Max movement allowed during long-press (pixels)
 SWAP_AXES = False  # Swap X and Y axes (True = swap, False = normal)
-ACCELERATION_ENABLED = True  # Enable cursor acceleration (movement scales with speed)
-ACCELERATION_FACTOR = 0.5  # Acceleration intensity (higher = faster acceleration)
+ACCELERATION_ENABLED = False  # Enable cursor acceleration (movement scales with speed)
+ACCELERATION_FACTOR = 0.25  # Acceleration intensity (higher = faster acceleration)
 ACCELERATION_MAX_MULTIPLIER = 3.0  # Maximum acceleration multiplier
 ACCELERATION_MIN_TIME_DELTA = (
     0.001  # Minimum time delta for speed calculation (seconds)
@@ -97,6 +101,19 @@ ACCELERATION_MIN_TIME_DELTA = (
 #       ACCELERATION_MAX_MULTIPLIER = 2.0  # Maximum 2x speed
 #       ACCELERATION_MAX_MULTIPLIER = 5.0  # Maximum 5x speed
 #
+# 9. Long-Press Drag Mode:
+#    a. Enable long-press drag (hold finger to start dragging):
+#       LONG_PRESS_DRAG = True
+#       LONG_PRESS_TIME = 0.5
+#    b. Disable long-press drag (use double-click drag instead):
+#       LONG_PRESS_DRAG = False
+#    c. Adjust long-press time:
+#       LONG_PRESS_TIME = 0.3  # Shorter (faster response)
+#       LONG_PRESS_TIME = 0.7  # Longer (avoid accidental drag)
+#    d. Adjust movement tolerance during long-press:
+#       LONG_PRESS_MOVE_THRESHOLD = 5   # Stricter (less movement allowed)
+#       LONG_PRESS_MOVE_THRESHOLD = 20  # Lenient (more movement allowed)
+#
 # Troubleshooting Guide:
 # 1. If cursor moves opposite direction: Try different MOVE_X/Y_MULTIPLIER combinations
 # 2. If cursor moves too fast/slow: Adjust MOVE_SCALE and multipliers
@@ -155,6 +172,8 @@ def main():
     click_count = 0
     last_process_time = time.time()
     last_speed = 0.0
+    long_press_start_pos = None
+    long_press_triggered = False
 
     try:
         for ev in dev.events():
@@ -181,25 +200,31 @@ def main():
                         touch_start_time = time.time()
                         moved_far = False
                         in_touch_cycle = True
-                        # Check for double-click drag mode
-                        current_time = time.time()
-                        if (
-                            current_time - last_click_time < DOUBLE_CLICK_TIMEOUT
-                            and click_count == 1
-                        ):
-                            # Start dragging immediately on double-click
-                            dragging = True
-                            uinput.send_events(
-                                [
-                                    libevdev.InputEvent(libevdev.EV_KEY.BTN_LEFT, 1),
-                                    libevdev.InputEvent(libevdev.EV_SYN.SYN_REPORT, 0),
-                                ]
-                            )
-                            print(
-                                f"{C_BLU}[DOUBLE CLICK DRAG]{C_RST} Double-click detected, dragging started"
-                            )
-                        else:
+                        long_press_triggered = False
+                        if LONG_PRESS_DRAG:
                             pass
+                        else:
+                            current_time = time.time()
+                            if (
+                                current_time - last_click_time < DOUBLE_CLICK_TIMEOUT
+                                and click_count == 1
+                            ):
+                                dragging = True
+                                uinput.send_events(
+                                    [
+                                        libevdev.InputEvent(
+                                            libevdev.EV_KEY.BTN_LEFT, 1
+                                        ),
+                                        libevdev.InputEvent(
+                                            libevdev.EV_SYN.SYN_REPORT, 0
+                                        ),
+                                    ]
+                                )
+                                print(
+                                    f"{C_BLU}[DOUBLE CLICK DRAG]{C_RST} Double-click detected, dragging started"
+                                )
+                            else:
+                                pass
                         print(
                             f"{C_GRN}[DOWN]{C_RST} Slot {cur_slot} Tracking {tid} Pressing(Main finger)"
                         )
@@ -296,6 +321,8 @@ def main():
                             # Reset double-click drag mode when finger releases
                             in_touch_cycle = False
                             main_finger_id = None
+                            long_press_start_pos = None
+                            long_press_triggered = False
 
             elif ev.matches(libevdev.EV_ABS.ABS_MT_POSITION_X):
                 tid = slot2id.get(cur_slot)
@@ -329,6 +356,19 @@ def main():
                     avg_dx = dx / count
                     avg_dy = dy / count
 
+                    main_finger_data = slots.get(main_finger_id)
+                    if (
+                        LONG_PRESS_DRAG
+                        and main_finger_data
+                        and main_finger_data["x"] is not None
+                        and main_finger_data["y"] is not None
+                        and long_press_start_pos is None
+                    ):
+                        long_press_start_pos = (
+                            main_finger_data["x"],
+                            main_finger_data["y"],
+                        )
+
                     if abs(avg_dx) > MOVE_THRESHOLD or abs(avg_dy) > MOVE_THRESHOLD:
                         moved_far = True
                         out = []
@@ -353,10 +393,44 @@ def main():
                                 )
                         else:
                             # Single finger movement
-                            if not dragging:
-                                # Only double-click mode can start dragging
-                                # No delayed drag (traditional touchpad behavior)
-                                pass
+                            if (
+                                LONG_PRESS_DRAG
+                                and not dragging
+                                and not long_press_triggered
+                            ):
+                                if long_press_start_pos and main_finger_data:
+                                    current_pos = (
+                                        main_finger_data["x"],
+                                        main_finger_data["y"],
+                                    )
+                                    total_move = math.sqrt(
+                                        (current_pos[0] - long_press_start_pos[0]) ** 2
+                                        + (current_pos[1] - long_press_start_pos[1])
+                                        ** 2
+                                    )
+                                    hold_time = current_time - touch_start_time
+                                    if (
+                                        hold_time >= LONG_PRESS_TIME
+                                        and total_move < LONG_PRESS_MOVE_THRESHOLD
+                                    ):
+                                        dragging = True
+                                        long_press_triggered = True
+                                        uinput.send_events(
+                                            [
+                                                libevdev.InputEvent(
+                                                    libevdev.EV_KEY.BTN_LEFT, 1
+                                                ),
+                                                libevdev.InputEvent(
+                                                    libevdev.EV_SYN.SYN_REPORT, 0
+                                                ),
+                                            ]
+                                        )
+                                        print(
+                                            f"{C_BLU}[LONG PRESS DRAG]{C_RST} Long-press detected, dragging started"
+                                        )
+                            elif not LONG_PRESS_DRAG:
+                                if not dragging:
+                                    pass
                             # Always send movement events
                             if SWAP_AXES:
                                 # Swap X and Y axes: X movement becomes Y, Y movement becomes X
