@@ -174,6 +174,10 @@ def main():
     last_speed = 0.0
     long_press_start_pos = None
     long_press_triggered = False
+    long_press_cancelled = False
+    right_button_held = False
+    second_finger_id = None
+    right_hold_pending = False
 
     try:
         for ev in dev.events():
@@ -201,6 +205,7 @@ def main():
                         moved_far = False
                         in_touch_cycle = True
                         long_press_triggered = False
+                        long_press_cancelled = False
                         if LONG_PRESS_DRAG:
                             pass
                         else:
@@ -230,9 +235,9 @@ def main():
                         )
                     else:
                         print(
-                            f"{C_YLW}[SECOND DOWN]{C_RST} Slot {cur_slot} Tracking {tid} Pressing(Second finger, may as right click)"
+                            f"{C_YLW}[SECOND DOWN]{C_RST} Slot {cur_slot} Tracking {tid} Pressing(Second finger)"
                         )
-                        # Cancel dragging if second finger touches
+                        # Cancel left button drag if second finger touches
                         if dragging:
                             uinput.send_events(
                                 [
@@ -244,6 +249,11 @@ def main():
                             print(
                                 f"{C_RED}[DRAG]{C_RST} Cancel dragging due to second finger"
                             )
+                        # Cancel long-press monitoring for this touch cycle
+                        long_press_cancelled = True
+                        # Start monitoring for right hold (activate after RIGHT_CLICK_TAP if no scroll)
+                        second_finger_id = tid
+                        right_hold_pending = True
 
                 else:
                     tid = slot2id.get(cur_slot)
@@ -254,16 +264,40 @@ def main():
                             f"{C_RED}[UP]{C_RST} Slot {cur_slot} Tracking {tid} Release(Duration: {duration:.2f}s)"
                         )
 
-                        if tid != main_finger_id and duration < RIGHT_CLICK_TAP:
-                            uinput.send_events(
-                                [
-                                    libevdev.InputEvent(libevdev.EV_KEY.BTN_RIGHT, 1),
-                                    libevdev.InputEvent(libevdev.EV_SYN.SYN_REPORT, 0),
-                                    libevdev.InputEvent(libevdev.EV_KEY.BTN_RIGHT, 0),
-                                    libevdev.InputEvent(libevdev.EV_SYN.SYN_REPORT, 0),
-                                ]
-                            )
-                            print(f"{C_BLU}[CLICK]{C_RST} Right Click")
+                        if tid == second_finger_id:
+                            if right_hold_pending and duration < RIGHT_CLICK_TAP:
+                                uinput.send_events(
+                                    [
+                                        libevdev.InputEvent(
+                                            libevdev.EV_KEY.BTN_RIGHT, 1
+                                        ),
+                                        libevdev.InputEvent(
+                                            libevdev.EV_SYN.SYN_REPORT, 0
+                                        ),
+                                        libevdev.InputEvent(
+                                            libevdev.EV_KEY.BTN_RIGHT, 0
+                                        ),
+                                        libevdev.InputEvent(
+                                            libevdev.EV_SYN.SYN_REPORT, 0
+                                        ),
+                                    ]
+                                )
+                                print(f"{C_BLU}[CLICK]{C_RST} Right Click")
+                            if right_button_held:
+                                right_button_held = False
+                                uinput.send_events(
+                                    [
+                                        libevdev.InputEvent(
+                                            libevdev.EV_KEY.BTN_RIGHT, 0
+                                        ),
+                                        libevdev.InputEvent(
+                                            libevdev.EV_SYN.SYN_REPORT, 0
+                                        ),
+                                    ]
+                                )
+                                print(f"{C_RED}[DRAG]{C_RST} Stop right dragging")
+                            second_finger_id = None
+                            right_hold_pending = False
 
                         slots.pop(tid, None)
                         last_pos.pop(tid, None)
@@ -271,58 +305,67 @@ def main():
 
                         if tid == main_finger_id and in_touch_cycle:
                             total_time = time.time() - touch_start_time
-                            if (
-                                not dragging
-                                and not moved_far
-                                and total_time < CLICK_TIME
-                            ):
-                                uinput.send_events(
-                                    [
-                                        libevdev.InputEvent(
-                                            libevdev.EV_KEY.BTN_LEFT, 1
-                                        ),
-                                        libevdev.InputEvent(
-                                            libevdev.EV_SYN.SYN_REPORT, 0
-                                        ),
-                                        libevdev.InputEvent(
-                                            libevdev.EV_KEY.BTN_LEFT, 0
-                                        ),
-                                        libevdev.InputEvent(
-                                            libevdev.EV_SYN.SYN_REPORT, 0
-                                        ),
-                                    ]
-                                )
-                                print(f"{C_BLU}[CLICK]{C_RST} Left Click")
-                                # Record click time for double-click detection
-                                current_time = time.time()
-                                if (
-                                    current_time - last_click_time
-                                    < DOUBLE_CLICK_TIMEOUT
-                                ):
-                                    click_count += 1
+                            if right_button_held:
+                                remaining = [t for t in slots]
+                                if remaining:
+                                    main_finger_id = remaining[0]
                                 else:
-                                    click_count = 1
-                                last_click_time = current_time
-                                print(f"{C_YLW}[CLICK COUNT]{C_RST} {click_count}")
-                            # End dragging if dragging
-                            if dragging:
-                                uinput.send_events(
-                                    [
-                                        libevdev.InputEvent(
-                                            libevdev.EV_KEY.BTN_LEFT, 0
-                                        ),
-                                        libevdev.InputEvent(
-                                            libevdev.EV_SYN.SYN_REPORT, 0
-                                        ),
-                                    ]
-                                )
-                                dragging = False
-                                print(f"{C_RED}[DRAG]{C_RST} Stop dragging")
-                            # Reset double-click drag mode when finger releases
-                            in_touch_cycle = False
-                            main_finger_id = None
-                            long_press_start_pos = None
-                            long_press_triggered = False
+                                    in_touch_cycle = False
+                                    main_finger_id = None
+                            else:
+                                if (
+                                    not dragging
+                                    and not moved_far
+                                    and total_time < CLICK_TIME
+                                ):
+                                    uinput.send_events(
+                                        [
+                                            libevdev.InputEvent(
+                                                libevdev.EV_KEY.BTN_LEFT, 1
+                                            ),
+                                            libevdev.InputEvent(
+                                                libevdev.EV_SYN.SYN_REPORT, 0
+                                            ),
+                                            libevdev.InputEvent(
+                                                libevdev.EV_KEY.BTN_LEFT, 0
+                                            ),
+                                            libevdev.InputEvent(
+                                                libevdev.EV_SYN.SYN_REPORT, 0
+                                            ),
+                                        ]
+                                    )
+                                    print(f"{C_BLU}[CLICK]{C_RST} Left Click")
+                                    # Record click time for double-click detection
+                                    current_time = time.time()
+                                    if (
+                                        current_time - last_click_time
+                                        < DOUBLE_CLICK_TIMEOUT
+                                    ):
+                                        click_count += 1
+                                    else:
+                                        click_count = 1
+                                    last_click_time = current_time
+                                    print(f"{C_YLW}[CLICK COUNT]{C_RST} {click_count}")
+                                # End dragging if dragging
+                                if dragging:
+                                    uinput.send_events(
+                                        [
+                                            libevdev.InputEvent(
+                                                libevdev.EV_KEY.BTN_LEFT, 0
+                                            ),
+                                            libevdev.InputEvent(
+                                                libevdev.EV_SYN.SYN_REPORT, 0
+                                            ),
+                                        ]
+                                    )
+                                    dragging = False
+                                    print(f"{C_RED}[DRAG]{C_RST} Stop dragging")
+                                # Reset double-click drag mode when finger releases
+                                in_touch_cycle = False
+                                main_finger_id = None
+                                long_press_start_pos = None
+                                long_press_triggered = False
+                                long_press_cancelled = False
 
             elif ev.matches(libevdev.EV_ABS.ABS_MT_POSITION_X):
                 tid = slot2id.get(cur_slot)
@@ -341,10 +384,14 @@ def main():
                 ]
 
                 dx = dy = count = 0
+                finger_deltas = {}
                 for tid in active:
                     if tid in last_pos:
-                        dx += slots[tid]["x"] - last_pos[tid][0]
-                        dy += slots[tid]["y"] - last_pos[tid][1]
+                        ddx = slots[tid]["x"] - last_pos[tid][0]
+                        ddy = slots[tid]["y"] - last_pos[tid][1]
+                        finger_deltas[tid] = (ddx, ddy)
+                        dx += ddx
+                        dy += ddy
                         count += 1
                     last_pos[tid] = (slots[tid]["x"], slots[tid]["y"])
 
@@ -355,6 +402,9 @@ def main():
                 if count:
                     avg_dx = dx / count
                     avg_dy = dy / count
+
+                    if right_button_held and main_finger_id in finger_deltas:
+                        avg_dx, avg_dy = finger_deltas[main_finger_id]
 
                     main_finger_data = slots.get(main_finger_id)
                     if (
@@ -369,11 +419,68 @@ def main():
                             main_finger_data["y"],
                         )
 
+                    if (
+                        LONG_PRESS_DRAG
+                        and not dragging
+                        and not long_press_triggered
+                        and not long_press_cancelled
+                        and main_finger_data
+                        and main_finger_data["x"] is not None
+                        and main_finger_data["y"] is not None
+                    ):
+                        hold_time = current_time - touch_start_time
+                        if hold_time < LONG_PRESS_TIME:
+                            if long_press_start_pos:
+                                current_pos = (
+                                    main_finger_data["x"],
+                                    main_finger_data["y"],
+                                )
+                                total_move = math.sqrt(
+                                    (current_pos[0] - long_press_start_pos[0]) ** 2
+                                    + (current_pos[1] - long_press_start_pos[1]) ** 2
+                                )
+                                if total_move >= LONG_PRESS_MOVE_THRESHOLD:
+                                    long_press_cancelled = True
+                                    print(
+                                        f"{C_YLW}[LONG PRESS CANCEL]{C_RST} Moved too much during hold, long press cancelled"
+                                    )
+                        elif hold_time >= LONG_PRESS_TIME:
+                            dragging = True
+                            long_press_triggered = True
+                            uinput.send_events(
+                                [
+                                    libevdev.InputEvent(libevdev.EV_KEY.BTN_LEFT, 1),
+                                    libevdev.InputEvent(libevdev.EV_SYN.SYN_REPORT, 0),
+                                ]
+                            )
+                            print(
+                                f"{C_BLU}[LONG PRESS DRAG]{C_RST} Long-press detected, dragging started"
+                            )
+
+                    if right_hold_pending and second_finger_id in active:
+                        second_data = slots.get(second_finger_id)
+                        if second_data and second_data.get("press_time"):
+                            second_hold_time = current_time - second_data["press_time"]
+                            if second_hold_time >= RIGHT_CLICK_TAP:
+                                right_button_held = True
+                                right_hold_pending = False
+                                uinput.send_events(
+                                    [
+                                        libevdev.InputEvent(
+                                            libevdev.EV_KEY.BTN_RIGHT, 1
+                                        ),
+                                        libevdev.InputEvent(
+                                            libevdev.EV_SYN.SYN_REPORT, 0
+                                        ),
+                                    ]
+                                )
+                                print(f"{C_BLU}[RIGHT HOLD]{C_RST} Right button held")
+
                     if abs(avg_dx) > MOVE_THRESHOLD or abs(avg_dy) > MOVE_THRESHOLD:
                         moved_far = True
                         out = []
 
-                        if len(active) >= 2:
+                        if len(active) >= 2 and not right_button_held:
                             # For scrolling, we need to consider axis swapping
                             if SWAP_AXES:
                                 # When axes are swapped, horizontal finger movement (dx) becomes vertical scroll
@@ -391,47 +498,9 @@ def main():
                                         libevdev.EV_REL.REL_WHEEL, wheel_val
                                     )
                                 )
+                                right_hold_pending = False
                         else:
                             # Single finger movement
-                            if (
-                                LONG_PRESS_DRAG
-                                and not dragging
-                                and not long_press_triggered
-                            ):
-                                if long_press_start_pos and main_finger_data:
-                                    current_pos = (
-                                        main_finger_data["x"],
-                                        main_finger_data["y"],
-                                    )
-                                    total_move = math.sqrt(
-                                        (current_pos[0] - long_press_start_pos[0]) ** 2
-                                        + (current_pos[1] - long_press_start_pos[1])
-                                        ** 2
-                                    )
-                                    hold_time = current_time - touch_start_time
-                                    if (
-                                        hold_time >= LONG_PRESS_TIME
-                                        and total_move < LONG_PRESS_MOVE_THRESHOLD
-                                    ):
-                                        dragging = True
-                                        long_press_triggered = True
-                                        uinput.send_events(
-                                            [
-                                                libevdev.InputEvent(
-                                                    libevdev.EV_KEY.BTN_LEFT, 1
-                                                ),
-                                                libevdev.InputEvent(
-                                                    libevdev.EV_SYN.SYN_REPORT, 0
-                                                ),
-                                            ]
-                                        )
-                                        print(
-                                            f"{C_BLU}[LONG PRESS DRAG]{C_RST} Long-press detected, dragging started"
-                                        )
-                            elif not LONG_PRESS_DRAG:
-                                if not dragging:
-                                    pass
-                            # Always send movement events
                             if SWAP_AXES:
                                 # Swap X and Y axes: X movement becomes Y, Y movement becomes X
                                 raw_move_x = avg_dy
